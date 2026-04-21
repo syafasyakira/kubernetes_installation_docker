@@ -25,6 +25,7 @@ gpg --no-default-keyring --keyring ./docker.gpg --export > ./docker-archive-keyr
 
 sudo mv ./docker-archive-keyring.gpg /etc/apt/trusted.gpg.d/
 ```
+![Hasil Screenshot](screenshot/1.png)
 
 > Add the docker repository and install docker
 
@@ -37,6 +38,8 @@ sudo apt install git wget curl socat -y
 sudo apt install -y docker-ce
 
 ```
+![Hasil Screenshot](screenshot/2.png)
+![Hasil Screenshot](screenshot/3.png)
 
 **To install cri-dockerd for Docker support**
 
@@ -71,6 +74,8 @@ sudo systemctl enable cri-docker.service
 sudo systemctl enable --now cri-docker.socket
 
 ```
+![Hasil Screenshot](screenshot/4.png)
+![Hasil Screenshot](screenshot/5.png)
 
 > Add the GPG key for kubernetes
 
@@ -97,6 +102,7 @@ sudo apt-get update
 # Use the same versions to avoid issues with the installation.
 sudo apt-get install -y kubelet kubeadm kubectl
 ```
+![Hasil Screenshot](screenshot/6.png)
 
 > To hold the versions so that the versions will not get accidently upgraded.
 
@@ -125,6 +131,8 @@ EOF
 # Apply sysctl params without reboot
 sudo sysctl --system
 ```
+![Hasil Screenshot](screenshot/7.png)
+
 ### Disable SWAP
 > Disable swap on controlplane and dataplane nodes
 
@@ -136,6 +144,8 @@ sudo swapoff -a
 sudo vim /etc/fstab
 # comment the line which starts with **swap.img**.
 ```
+![Hasil Screenshot](screenshot/8.png)
+![Hasil Screenshot](screenshot/9.png)
 
 ### On the Control Plane server (Master node)
 
@@ -156,6 +166,7 @@ sudo kubeadm init --apiserver-advertise-address=<control_plane_ip> --cri-socket 
 # Add --cri-socket /var/run/cri-dockerd.sock to the command
 kubeadm join <control_plane_ip>:6443 --token 31rvbl.znk703hbelja7qbx --cri-socket unix:///var/run/cri-dockerd.sock --discovery-token-ca-cert-hash sha256:3dd5f401d1c86be4axxxxxxxxxx61ce965f5xxxxxxxxxxf16cb29a89b96c97dd
 ```
+![Hasil Screenshot](screenshot/10.png)
 
 > To start using the cluster with current user.
 
@@ -164,6 +175,7 @@ mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 ```
+![Hasil Screenshot](screenshot/12.png)
 
 > To set up the Calico network
 
@@ -177,6 +189,9 @@ curl https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/cu
 kubectl create -f custom-resources.yaml
 
 ```
+![Hasil Screenshot](screenshot/13.png)
+![Hasil Screenshot](screenshot/14.png)
+![Hasil Screenshot](screenshot/15.png)
 
 > Check the nodes
 
@@ -184,6 +199,7 @@ kubectl create -f custom-resources.yaml
 # Check the status on the master node.
 kubectl get nodes
 ```
+![Hasil Screenshot](screenshot/16.png)
 
 ### On each of Data plane node (Worker node)
 
@@ -197,6 +213,7 @@ sudo kubeadm join $controller_private_ip:6443 --token $token --discovery-token-c
 # kubeadm join <control_plane_ip>:6443 --cri-socket unix:///var/run/cri-dockerd.sock --token 31rvbl.znk703hbelja7qbx --discovery-token-ca-cert-hash sha256:3dd5f401d1c86be4axxxxxxxxxx61ce965f5xxxxxxxxxxf16cb29a89b96c97dd
 # sudo kubeadm join 10.34.7.115:6443 --cri-socket unix:///var/run/cri-dockerd.sock --token kwdszg.aze47y44h7j74x6t --discovery-token-ca-cert-hash sha256:3bd51b39b3a166a4ba5914fc3a19b61cfe81789965da6ac23435edb6aeed9e0d
 ```
+![Hasil Screenshot](screenshot/11.png)
 
 **TIP**
 
@@ -215,6 +232,7 @@ kubectl apply -f metrics-server.yaml
 cd
 rm -rf kubernetes_installation_docker/
 ```
+![Hasil Screenshot](screenshot/17.png)
 
 ### Installing Dashboard (Master node)
 
@@ -226,18 +244,25 @@ Download and install Helm with the following commands:
      ./get_helm.sh
      helm   
 ```
+![Hasil Screenshot](screenshot/18.png)
+
 3. *Adding the Kubernetes Dashboard Helm Repository:*
 Add the repository and verify it:
 ```bash   
      helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
      helm repo list    
 ```
+![Hasil Screenshot](screenshot/20.png)
+
 5. *Installing Kubernetes Dashboard Using Helm:*
 Install it in the `kubernetes-dashboard` namespace:
 ```bash     
      helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace kubernetes-dashboard
      kubectl get pods,svc -n kubernetes-dashboard  
 ```
+![Hasil Screenshot](screenshot/21.png)
+![Hasil Screenshot](screenshot/22.png)
+
 7. *Accessing the Dashboard:*
 Expose the dashboard using a NodePort:
 ```bash      
@@ -279,7 +304,12 @@ then run:
 ```bash
 kubectl apply -f k8s-dash.yaml
 ```
+![Hasil Screenshot](screenshot/23.png)
+![Hasil Screenshot](screenshot/24.png)
+
 10. Generate the token:    
      kubectl create token widhi -n kube-system
+![Hasil Screenshot](screenshot/25.png)
+
 
 
