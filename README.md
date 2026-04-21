@@ -1,5 +1,13 @@
 ﻿# Kubernetes Installation on Ubuntu 22.04/24.04
 
+## Anggota Tim
+
+| No | Nama                             | NIM             | 
+| -- | -------------------------------- | --------------- |  
+| 1  | Zaqia Mahadewi                   | 235150201111001 | 
+| 2  | Syafa Syakira Shalsabilla        | 235150201111006 | 
+| 3  | Shafiyyah Daniswara Nurwijayanti | 245150207111061 |
+
 Get the detailed information about the installation from the below-mentioned websites of **Docker** and **Kubernetes**.
 
 [Docker](https://docs.docker.com/)
@@ -307,8 +315,10 @@ kubectl apply -f k8s-dash.yaml
 ![Hasil Screenshot](screenshot/23.png)
 ![Hasil Screenshot](screenshot/24.png)
 
-10. Generate the token:    
-     kubectl create token widhi -n kube-system
+10. Generate the token:
+```bash 
+kubectl create token widhi -n kube-system
+```
 ![Hasil Screenshot](screenshot/25.png)
 
 
