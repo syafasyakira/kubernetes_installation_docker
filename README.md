@@ -34,6 +34,7 @@ gpg --no-default-keyring --keyring ./docker.gpg --export > ./docker-archive-keyr
 sudo mv ./docker-archive-keyring.gpg /etc/apt/trusted.gpg.d/
 ```
 ![Hasil Screenshot](screenshot/1.png)
+Persiapan diawali dengan penyediaan mesin berbasis Ubuntu yang difungsikan sebagai Master dan Worker melalui mesin virtual (VM). Konfigurasi jaringan pada VM diatur menggunakan Bridge Adapter agar setiap node terhubung langsung ke jaringan lokal (FILKOM). Untuk menjamin keamanan dan autentikasi paket yang akan diunduh, kunci GPG resmi untuk Docker diunduh dan ditambahkan ke dalam sistem. Selain itu, repositori Docker dan Kubernetes didaftarkan ke dalam daftar sumber paket sistem agar proses instalasi komponen pendukung dapat dilakukan dengan versi yang sesuai dan terverifikasi.
 
 > Add the docker repository and install docker
 
@@ -48,6 +49,7 @@ sudo apt install -y docker-ce
 ```
 ![Hasil Screenshot](screenshot/2.png)
 ![Hasil Screenshot](screenshot/3.png)
+Setelah kunci GPG berhasil dikonfigurasi, repositori resmi Docker ditambahkan ke dalam sistem menggunakan perintah add-apt-repository dengan menyesuaikan arsitektur serta versi distribusi Ubuntu yang digunakan. Selanjutnya, daftar paket pada sistem diperbarui melalui perintah apt update untuk memastikan informasi dari repositori terbaru telah tersinkronisasi. Sebelum instalasi utama dilakukan, beberapa perangkat pendukung seperti git, wget, curl, dan socat dipasang terlebih dahulu untuk menjamin kelancaran proses operasional. Langkah ini diakhiri dengan pemasangan paket docker-ce (Docker Community Edition) ke dalam sistem sebagai mesin utama pengelola kontainer.
 
 **To install cri-dockerd for Docker support**
 
@@ -84,6 +86,7 @@ sudo systemctl enable --now cri-docker.socket
 ```
 ![Hasil Screenshot](screenshot/4.png)
 ![Hasil Screenshot](screenshot/5.png)
+Dikarenakan Docker Engine tidak mengimplementasikan Container Runtime Interface (CRI) secara bawaan, maka paket tambahan cri-dockerd dipasang agar Docker dapat bekerja dengan Kubernetes. Proses ini dimulai dengan pengambilan informasi versi terbaru melalui API GitHub, yang kemudian dilanjutkan dengan pengunduhan berkas biner sesuai versi tersebut menggunakan wget. Setelah berkas berhasil diunduh, dilakukan ekstraksi dan pemindahan biner cri-dockerd ke dalam direktori /usr/local/bin/. Selain biner utama, berkas konfigurasi service dan socket untuk sistem unit systemd juga diunduh dan dipindahkan ke direktori sistem. Penyesuaian jalur eksekusi pada berkas konfigurasi dilakukan menggunakan perintah sed, lalu diakhiri dengan pemuatan ulang daemon serta pengaktifan layanan cri-docker agar dapat berjalan secara otomatis di dalam sistem.
 
 > Add the GPG key for kubernetes
 
@@ -111,6 +114,7 @@ sudo apt-get update
 sudo apt-get install -y kubelet kubeadm kubectl
 ```
 ![Hasil Screenshot](screenshot/6.png)
+Tahap berikutnya difokuskan pada penyiapan repositori Kubernetes untuk memungkinkan pengunduhan komponen utama cluster. Kunci GPG resmi dari Kubernetes diunduh menggunakan curl dan dikonversi ke dalam format biner melalui perintah gpg --dearmor untuk disimpan di dalam gantungan kunci sistem. Setelah autentikasi tersebut siap, repositori Kubernetes versi 1.31 ditambahkan ke dalam daftar sumber paket sistem melalui pembuatan berkas konfigurasi di /etc/apt/sources.list.d/. Sinkronisasi ulang terhadap daftar paket kemudian dilakukan dengan perintah apt-get update agar sistem dapat mengenali repositori yang baru saja ditambahkan. Sebagai langkah akhir, tiga paket utama yaitu kubelet, kubeadm, dan kubectl dipasang secara bersamaan untuk memastikan seluruh alat pengelolaan cluster tersedia dalam versi yang konsisten.
 
 > To hold the versions so that the versions will not get accidently upgraded.
 
@@ -140,6 +144,7 @@ EOF
 sudo sysctl --system
 ```
 ![Hasil Screenshot](screenshot/7.png)
+Agar stabilitas cluster terjaga, versi dari paket docker-ce, kubelet, kubeadm, dan kubectl dikunci menggunakan perintah apt-mark hold guna mencegah pembaruan otomatis yang tidak disengaja. Selanjutnya, konfigurasi jaringan pada kernel Linux diatur dengan mengaktifkan modul overlay dan br_netfilter melalui berkas konfigurasi di /etc/modules-load.d/. Hal ini dilakukan agar lalu lintas data antar-jembatan jaringan (bridge) dapat diproses oleh iptables. Parameter kernel tersebut kemudian diterapkan secara permanen melalui pembuatan berkas di /etc/sysctl.d/k8s.conf yang mencakup pengaturan bridge-nf-call-iptables dan ip_forward. Sebagai langkah terakhir, seluruh parameter sistem tersebut diaktifkan secara langsung tanpa memerlukan proses reboot melalui perintah sysctl --system.
 
 ### Disable SWAP
 > Disable swap on controlplane and dataplane nodes
@@ -154,6 +159,7 @@ sudo vim /etc/fstab
 ```
 ![Hasil Screenshot](screenshot/8.png)
 ![Hasil Screenshot](screenshot/9.png)
+Langkah selanjutnya adalah penonaktifan fitur swap pada seluruh node, baik pada control plane maupun data plane. Hal ini dilakukan karena Kubernetes memerlukan stabilitas memori yang konsisten agar penjadwalan pod dapat berjalan secara akurat. Penonaktifan swap untuk sementara dilakukan melalui perintah swapoff -a. Agar perubahan tersebut bersifat permanen dan tidak aktif kembali saat sistem dinyalakan ulang, berkas konfigurasi /etc/fstab disunting menggunakan editor teks vim. Di dalam berkas tersebut, baris yang merujuk pada swap.img diberikan tanda komentar (simbol #) sehingga sistem tidak akan memuat partisi swap pada proses booting berikutnya.
 
 ### On the Control Plane server (Master node)
 
@@ -175,6 +181,7 @@ sudo kubeadm init --apiserver-advertise-address=<control_plane_ip> --cri-socket 
 kubeadm join <control_plane_ip>:6443 --token 31rvbl.znk703hbelja7qbx --cri-socket unix:///var/run/cri-dockerd.sock --discovery-token-ca-cert-hash sha256:3dd5f401d1c86be4axxxxxxxxxx61ce965f5xxxxxxxxxxf16cb29a89b96c97dd
 ```
 ![Hasil Screenshot](screenshot/10.png)
+Proses pembentukan cluster dimulai pada node Control Plane (Master) dengan menjalankan perintah kubeadm init. Dalam tahap ini, alamat IP spesifik node master ditentukan sebagai titik akses API server, dan soket cri-dockerd didefinisikan secara eksplisit sebagai antarmuka runtime kontainer. Selain itu, rentang jaringan pod (CIDR) diatur sesuai dengan kebutuhan plugin jaringan yang akan digunakan. Selama proses inisialisasi berlangsung, berbagai sertifikat keamanan, kunci enkripsi, serta berkas konfigurasi administratif dibuat secara otomatis oleh sistem. Di akhir proses, sebuah perintah kubeadm join yang disertai dengan token unik dan hash sertifikat dihasilkan; perintah tersebut kemudian disimpan untuk digunakan pada tahap penggabungan node Worker ke dalam cluster.
 
 > To start using the cluster with current user.
 
@@ -184,6 +191,7 @@ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 ```
 ![Hasil Screenshot](screenshot/12.png)
+Setelah proses inisialisasi cluster selesai, konfigurasi hak akses diperlukan agar perintah kubectl dapat dijalankan oleh pengguna non-root. Hal ini diawali dengan pembuatan direktori .kube di dalam direktori beranda pengguna melalui perintah mkdir. Selanjutnya, berkas konfigurasi administratif admin.conf disalin dari direktori /etc/kubernetes/ ke dalam direktori .kube yang baru saja dibuat. Untuk memastikan pengguna memiliki hak akses penuh terhadap berkas tersebut, kepemilikan berkas diubah menggunakan perintah chown sesuai dengan identitas pengguna dan grup yang sedang aktif. Dengan selesainya langkah ini, pengelolaan cluster dapat dilakukan secara langsung melalui terminal tanpa memerlukan akses superuser (root).
 
 > To set up the Calico network
 
@@ -200,6 +208,7 @@ kubectl create -f custom-resources.yaml
 ![Hasil Screenshot](screenshot/13.png)
 ![Hasil Screenshot](screenshot/14.png)
 ![Hasil Screenshot](screenshot/15.png)
+Pengaturan komunikasi antar-pod di dalam cluster dilakukan dengan menerapkan solusi jaringan Calico. Tahap ini diawali dengan pembuatan manifestasi tigera-operator melalui perintah kubectl create yang bersumber langsung dari repositori resmi Calico. Selanjutnya, berkas konfigurasi custom-resources.yaml diunduh menggunakan curl untuk mendefinisikan sumber daya kustom jaringan. Sebelum berkas tersebut diaplikasikan, penyesuaian alamat IP pada rentang jaringan pod dilakukan jika terdapat bentrokan dengan jaringan lokal node. Setelah konfigurasi dipastikan sesuai, berkas tersebut diterapkan ke dalam sistem agar seluruh komponen jaringan Calico dapat diinisialisasi dan dijalankan secara otomatis di dalam cluster.
 
 > Check the nodes
 
@@ -208,6 +217,7 @@ kubectl create -f custom-resources.yaml
 kubectl get nodes
 ```
 ![Hasil Screenshot](screenshot/16.png)
+Setelah seluruh konfigurasi jaringan dan komponen utama berhasil diaplikasikan, pemeriksaan terhadap kondisi cluster dilakukan menggunakan perintah kubectl get nodes. Melalui langkah ini, daftar seluruh node yang terhubung, baik Master maupun Worker, ditampilkan beserta status operasionalnya masing-masing. Status "Ready" yang muncul pada kolom Status menunjukkan bahwa setiap node telah berhasil menginisialisasi runtime kontainer dan plugin jaringan dengan benar. Dengan tercapainya status tersebut, cluster dinyatakan telah siap sepenuhnya untuk menjalankan beban kerja dan penyebaran aplikasi (deployment).
 
 ### On each of Data plane node (Worker node)
 
@@ -222,6 +232,7 @@ sudo kubeadm join $controller_private_ip:6443 --token $token --discovery-token-c
 # sudo kubeadm join 10.34.7.115:6443 --cri-socket unix:///var/run/cri-dockerd.sock --token kwdszg.aze47y44h7j74x6t --discovery-token-ca-cert-hash sha256:3bd51b39b3a166a4ba5914fc3a19b61cfe81789965da6ac23435edb6aeed9e0d
 ```
 ![Hasil Screenshot](screenshot/11.png)
+Setelah node Master berhasil dikonfigurasi, node Worker digabungkan ke dalam cluster menggunakan perintah kubeadm join. Dalam proses ini, alamat IP serta port dari API server node master ditentukan sebagai tujuan koneksi. Autentikasi keamanan dilakukan dengan menyertakan token unik dan hash sertifikat CA yang telah dihasilkan pada tahap inisialisasi master. Selain itu, soket cri-dockerd didefinisikan secara spesifik agar node worker dapat berkomunikasi dengan runtime kontainer secara benar. Segera setelah perintah tersebut dieksekusi dan proses jabat tangan (handshake) selesai, node worker akan terdaftar secara otomatis di dalam cluster dan siap untuk menerima penjadwalan beban kerja.
 
 **TIP**
 
@@ -241,6 +252,7 @@ cd
 rm -rf kubernetes_installation_docker/
 ```
 ![Hasil Screenshot](screenshot/17.png)
+Apabila perintah penggabungan (join command) hilang atau kadaluwarsa, sebuah token baru dapat dibuat kembali melalui perintah kubeadm token create dengan menyertakan opsi untuk mencetak perintah penggabungan secara otomatis. Setelah seluruh node terhubung, komponen Metrics Server dipasang pada node master guna memungkinkan pemantauan penggunaan sumber daya di dalam cluster. Proses ini diawali dengan penggandaan repositori konfigurasi menggunakan git clone, yang kemudian dilanjutkan dengan penerapan manifestasi metrics-server.yaml ke dalam cluster melalui perintah kubectl apply. Sebagai langkah pembersihan, direktori repositori yang telah selesai digunakan dihapus dari sistem untuk menjaga kerapian direktori kerja.
 
 ### Installing Dashboard (Master node)
 
@@ -253,6 +265,7 @@ Download and install Helm with the following commands:
      helm   
 ```
 ![Hasil Screenshot](screenshot/18.png)
+Tahap persiapan untuk instalasi dashboard diawali dengan pemasangan Helm sebagai manajer paket untuk Kubernetes. Proses ini dilakukan dengan mengunduh skrip instalasi resmi Helm melalui perintah curl. Setelah skrip berhasil diunduh, izin eksekusi diberikan kepada berkas tersebut menggunakan perintah chmod +x agar dapat dijalankan di dalam sistem. Skrip kemudian dieksekusi untuk memasang biner Helm versi terbaru ke dalam direktori sistem. Sebagai langkah terakhir, perintah helm dijalankan untuk memverifikasi bahwa aplikasi telah terpasang dengan benar dan siap digunakan untuk mengelola bagan (charts) di dalam cluster.
 
 3. *Adding the Kubernetes Dashboard Helm Repository:*
 Add the repository and verify it:
@@ -261,6 +274,7 @@ Add the repository and verify it:
      helm repo list    
 ```
 ![Hasil Screenshot](screenshot/20.png)
+Setelah Helm terpasang, repositori resmi untuk Kubernetes Dashboard ditambahkan ke dalam daftar sumber Helm melalui perintah helm repo add. Pembaruan terhadap seluruh repositori Helm kemudian dilakukan untuk memastikan ketersediaan versi bagan (charts) terbaru. Selanjutnya, instalasi Dashboard dieksekusi menggunakan perintah helm upgrade --install ke dalam namespace khusus bernama kubernetes-dashboard. Selama proses ini, berbagai sumber daya seperti deployment, service, dan peran akses (roles) dibuat secara otomatis di dalam cluster. Sebagai langkah akhir, status deployment dipantau hingga seluruh pod terkait Dashboard dinyatakan aktif dan siap digunakan untuk manajemen cluster berbasis antarmuka grafis.
 
 5. *Installing Kubernetes Dashboard Using Helm:*
 Install it in the `kubernetes-dashboard` namespace:
@@ -270,6 +284,7 @@ Install it in the `kubernetes-dashboard` namespace:
 ```
 ![Hasil Screenshot](screenshot/21.png)
 ![Hasil Screenshot](screenshot/22.png)
+Instalasi Kubernetes Dashboard dilakukan dengan menggunakan perintah helm upgrade --install ke dalam namespace kubernetes-dashboard. Dalam proses ini, opsi --create-namespace disertakan agar sistem secara otomatis membuat ruang lingkup kerja baru jika belum tersedia. Setelah perintah eksekusi selesai, dilakukan pemantauan terhadap seluruh sumber daya yang telah dibuat melalui perintah kubectl get pods,svc. Melalui langkah ini, status operasional dari pod dan layanan (service) Dashboard dipastikan telah berjalan dengan benar di dalam namespace terkait. Kondisi seluruh komponen diverifikasi hingga mencapai status aktif, menandakan bahwa antarmuka grafis manajemen cluster telah siap untuk dikonfigurasi lebih lanjut.
 
 7. *Accessing the Dashboard:*
 Expose the dashboard using a NodePort:
@@ -314,12 +329,13 @@ kubectl apply -f k8s-dash.yaml
 ```
 ![Hasil Screenshot](screenshot/23.png)
 ![Hasil Screenshot](screenshot/24.png)
+Agar Dashboard dapat diakses dari luar cluster, layanan kubernetes-dashboard-kong diekspos menggunakan tipe NodePort melalui perintah kubectl expose. Dengan langkah ini, sebuah port statis pada rentang 30000-32767 dibuka pada setiap node sehingga antarmuka grafis dapat diakses melalui alamat IP fisik node. Selanjutnya, sebuah akun layanan bernama widhi dibuat di dalam namespace kube-system untuk keperluan autentikasi login. Akun tersebut kemudian dihubungkan dengan peran cluster-admin melalui konfigurasi ClusterRoleBinding agar memiliki hak akses administratif penuh terhadap cluster. Seluruh konfigurasi tersebut didefinisikan di dalam berkas k8s-dash.yaml dan diaplikasikan ke dalam sistem menggunakan perintah kubectl apply. Sebagai langkah akhir, token akses dihasilkan dari akun layanan tersebut untuk digunakan sebagai kredensial masuk pada halaman Dashboard.
 
 10. Generate the token:
 ```bash 
 kubectl create token widhi -n kube-system
 ```
 ![Hasil Screenshot](screenshot/25.png)
-
+Setelah akun layanan dan pengaturan peran (role binding) berhasil diaplikasikan, token rahasia yang diperlukan untuk proses login Dashboard dihasilkan melalui perintah kubectl get secret. Token tersebut diambil dari akun layanan widhi yang berada di dalam namespace kube-system. Detail rahasia (secret) ditampilkan menggunakan perintah describe guna mendapatkan deretan kode token autentikasi yang panjang. Token tersebut kemudian disalin dan dimasukkan ke dalam kolom login pada antarmuka web Kubernetes Dashboard untuk mendapatkan akses administratif penuh ke dalam cluster.
 
 
