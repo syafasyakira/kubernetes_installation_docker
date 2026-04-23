@@ -1,232 +1,88 @@
-# Load Balancing for Login Web Application
+# Load Balancing and Autoscaling for Login Web Application
 
-This guide demonstrates how to set up load balancing for the login web application to distribute traffic across multiple frontend containers.
+This guide sets up NGINX Ingress Controller as a load balancer and configures Horizontal Pod Autoscaling (HPA) for the login-app.
 
-## Introduction
+## Cluster Information
 
-Your current deployment already has multiple replicas (`replicas: 2`) defined in the web deployment, which means Kubernetes is running two pods. The default Kubernetes service provides basic load balancing between these pods.
+| Item | Value |
+|------|-------|
+| Master node | kube-master (10.34.7.115) |
+| Worker node | k8s-control (10.34.7.5) |
+| App NodePort | 30080 |
+| Ingress (LB) port | 30081 |
+| HPA min/max replicas | 2 / 4 |
+| CPU scale-up threshold | 80% |
 
-In this guide, we'll enhance this with:
-1. A dedicated load balancer configuration
-2. Testing to verify the load balancing is working
+---
 
-## 1. Modify Web Deployment for Better Load Balancing
+## Prerequisites Check
 
-First, let's update the web deployment to ensure we have proper identification for each pod:
-
-```bash
-cat > k8s/web-deployment-lb.yaml << 'EOF'
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: login-app
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: login-app
-  template:
-    metadata:
-      labels:
-        app: login-app
-    spec:
-      containers:
-      - name: login-app
-        image: login-app:latest
-        imagePullPolicy: Never
-        ports:
-        - containerPort: 3000
-        env:
-        - name: DB_HOST
-          value: mysql
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_USER
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_PASSWORD
-        - name: DB_NAME
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_DATABASE
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-EOF
-```
-# Load Balancing for Login Web Application
-
-This guide demonstrates how to set up load balancing for the login web application to distribute traffic across multiple frontend containers.
-
-## Introduction
-
-Your current deployment already has multiple replicas (`replicas: 2`) defined in the web deployment, which means Kubernetes is running two pods. The default Kubernetes service provides basic load balancing between these pods.
-
-In this guide, we'll enhance this with:
-1. A dedicated load balancer configuration
-2. Testing to verify the load balancing is working
-
-## 1. Modify Web Deployment for Better Load Balancing
-
-First, let's update the web deployment to ensure we have proper identification for each pod:
+Before starting, verify the cluster is healthy:
 
 ```bash
-cat > k8s/web-deployment-lb.yaml << 'EOF'
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: login-app
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: login-app
-  template:
-    metadata:
-      labels:
-        app: login-app
-    spec:
-      containers:
-      - name: login-app
-        image: login-app:latest
-        imagePullPolicy: Never
-        ports:
-        - containerPort: 3000
-        env:
-        - name: DB_HOST
-          value: mysql
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_USER
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_PASSWORD
-        - name: DB_NAME
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_DATABASE
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-EOF
+# Check nodes
+kubectl get nodes
+
+# Check login-app is running
+kubectl get pods -l app=login-app
+
+# Check current service
+kubectl get svc login-app
+
+# Check if HPA already exists
+kubectl get hpa login-app-hpa
 ```
 
-## 2. Add Server Identification to the Web Application
+Expected: 2+ login-app pods Running, service type NodePort on port 30080.
 
-To better visualize load balancing, let's modify the web application to display which server is handling the request. Create a patch file:
+---
 
-```bash
-cat > app/server-patch.js << 'EOF'
-const os = require('os');
-const serverInfo = {
-  hostname: os.hostname(),
-  podName: process.env.POD_NAME || 'unknown',
-  nodeName: process.env.NODE_NAME || 'unknown'
-};
+## Step 1 — Install NGINX Ingress Controller
 
-// Add this after the health route
-app.get('/server-info', (req, res) => {
-  res.json(serverInfo);
-});
-
-// Insert this line before app.listen
-app.use((req, res, next) => {
-  res.setHeader('X-Served-By', serverInfo.podName);
-  next();
-});
-EOF
-```
-
-Apply this patch to your server.js file, then rebuild the Docker image:
+> Skip this step if `kubectl get pods -n ingress-nginx` already shows running pods.
 
 ```bash
-# Rebuild the Docker image with server identification
-cd app
-# Add the server info code to your server.js
-cat server-patch.js >> server.js
-
-docker build -t login-app:latest .
-docker save login-app:latest > login-app.tar
-
-# If needed, transfer to worker nodes and load
-# scp login-app.tar user@worker-node:/home/user/
-# On worker nodes: docker load < login-app.tar
-```
-
-## 3. Apply the Updated Web Deployment
-
-```bash
-kubectl apply -f k8s/web-deployment-lb.yaml
-```
-
-## 4. Create an Nginx Ingress Controller for Advanced Load Balancing
-
-```bash
-# Create namespace for ingress-nginx
-kubectl create namespace ingress-nginx
-
-# Add the ingress-nginx repository to Helm
+# Add Helm repo
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 
-# Install ingress-nginx using Helm
+# Install NGINX ingress on the worker node (k8s-control), expose on NodePort 30081
 helm install ingress-nginx ingress-nginx/ingress-nginx \
   --namespace ingress-nginx \
-  --set controller.nodeSelector."kubernetes\\.io/hostname"=<your-worker-node-name> \
+  --create-namespace \
+  --set controller.nodeSelector."kubernetes\.io/hostname"=k8s-control \
   --set controller.service.type=NodePort \
   --set controller.service.nodePorts.http=30081
+
+# Wait for the ingress controller pod to be ready (up to 2 min)
+kubectl wait --namespace ingress-nginx \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller \
+  --timeout=120s
+
+# Confirm it is running
+kubectl get pods -n ingress-nginx
+kubectl get svc -n ingress-nginx
 ```
 
-Replace `<your-worker-node-name>` with the name of your worker node (run `kubectl get nodes` to find it).
+---
 
-## 5. Create Ingress Resource for the Application
+## Step 2 — Apply Ingress Resource
+
+The ingress resource routes all HTTP traffic through the NGINX controller to the login-app service.
 
 ```bash
-cat > k8s/login-app-ingress.yaml << 'EOF'
+# Apply from the existing file in this repository
+kubectl apply -f k8s-login-app/k8s/login-app-ingress.yaml
+
+# Verify ingress is created
+kubectl get ingress
+kubectl describe ingress login-app-ingress
+```
+
+The `login-app-ingress.yaml` content:
+
+```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -246,135 +102,260 @@ spec:
             name: login-app
             port:
               number: 80
-EOF
 ```
 
-Apply the ingress resource:
+---
+
+## Step 3 — Scale Up login-app Replicas
+
+For proper load balancing, run at least 3 replicas:
 
 ```bash
-kubectl apply -f k8s/login-app-ingress.yaml
+kubectl scale deployment login-app --replicas=3
+
+# Wait until all replicas are ready
+kubectl rollout status deployment login-app
+
+# Confirm 3 pods are running
+kubectl get pods -l app=login-app -o wide
 ```
 
-## 6. Update Service to Work with Ingress
+---
 
-Make sure your service is correctly defined to work with the ingress:
+## Step 4 — Apply HPA for Autoscaling
+
+> Skip this step if `kubectl get hpa login-app-hpa` already shows an HPA.
 
 ```bash
-cat > k8s/web-service-lb.yaml << 'EOF'
-apiVersion: v1
-kind: Service
+# Apply from the existing file in this repository
+kubectl apply -f k8s-login-app/k8s/login-app-hpa.yaml
+
+# Verify HPA is active
+kubectl get hpa login-app-hpa
+kubectl describe hpa login-app-hpa
+```
+
+The `login-app-hpa.yaml` content:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 metadata:
-  name: login-app
+  name: login-app-hpa
 spec:
-  selector:
-    app: login-app
-  ports:
-  - port: 80
-    targetPort: 3000
-EOF
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: login-app
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Min
 ```
 
-Apply the updated service:
+---
 
-```bash
-kubectl apply -f k8s/web-service-lb.yaml
+## Step 5 — Access the Application
+
+After setup, the login-app is accessible via two routes:
+
+| Route | URL | Description |
+|-------|-----|-------------|
+| Direct NodePort | http://10.34.7.115:30080 | Bypasses ingress |
+| Via NGINX Ingress (LB) | http://10.34.7.115:30081 | Goes through load balancer |
+| Via Worker Node | http://10.34.7.5:30081 | Worker node access |
+
+Login credentials: **admin / admin123**
+
+---
+
+## Step 6 — Add Pod Identity Header (Optional but Recommended)
+
+By default, the backend does not reveal which pod handled a request. Adding an `X-Served-By` header lets you verify load distribution with `curl`.
+
+The following line is already added to `k8s-login-app/app/server.js`:
+
+```js
+app.use((req, res, next) => {
+  res.set('X-Served-By', process.env.HOSTNAME || 'unknown');
+  next();
+});
 ```
 
-## 7. Testing the Load Balancer
+`HOSTNAME` is automatically set to the pod name by Kubernetes.
 
-To verify the load balancing is working:
+After this change, rebuild and redeploy the image:
 
 ```bash
-# Make multiple requests to see different pod responses
-for i in {1..10}; do 
-  curl -s http://10.34.7.115:30081/server-info | jq .
-  sleep 1
+# 1. SSH into the worker node (where pods run)
+ssh widhi@10.34.7.5
+
+# 2. On the worker node — build new image
+cd /path/to/kubernetes_installation_docker/k8s-login-app/app
+sudo docker build -t login-app:latest .
+
+# 3. Exit back to master node
+exit
+
+# 4. On the master node — rollout restart to pick up the new image
+kubectl rollout restart deployment login-app
+kubectl rollout status deployment login-app
+```
+
+---
+
+## Step 7 — Test Load Balancing
+
+Verify that requests are distributed across all pods:
+
+```bash
+# Check which pods exist and their IPs
+kubectl get pods -l app=login-app -o wide
+
+# Send 10 requests via the ingress and observe X-Served-By header
+for i in {1..10}; do
+  echo -n "Request $i: "
+  curl -si http://10.34.7.115:30081/ | grep -i "x-served-by"
+  sleep 0.5
 done
+
+# Watch pod request counts in real time (open separate terminal)
+kubectl logs -f -l app=login-app --prefix=true | grep "GET\|POST"
 ```
 
-Replace `10.34.7.115` with your node IP address. You should see responses from different pods.
+You should see different pod names in the `X-Served-By` header across requests, confirming load balancing is working.
 
-## 8. Access the Application
-
-You can now access your application through the Ingress controller:
-
+Example output:
 ```
-http://10.34.7.115:30081
-```
-
-## 9. Visualizing Load Balancing
-
-To better visualize the load balancing, add a small JavaScript code to your application's frontend to show which server processed the request:
-
-```javascript
-// Add this to your dashboard.js or other frontend scripts
-fetch('/server-info')
-  .then(response => response.json())
-  .then(data => {
-    const serverInfoDiv = document.createElement('div');
-    serverInfoDiv.style.position = 'fixed';
-    serverInfoDiv.style.bottom = '10px';
-    serverInfoDiv.style.right = '10px';
-    serverInfoDiv.style.padding = '5px';
-    serverInfoDiv.style.background = 'rgba(0,0,0,0.6)';
-    serverInfoDiv.style.color = 'white';
-    serverInfoDiv.style.fontSize = '12px';
-    serverInfoDiv.style.borderRadius = '3px';
-    serverInfoDiv.textContent = `Server: ${data.podName}`;
-    document.body.appendChild(serverInfoDiv);
-  });
+Request 1: X-Served-By: login-app-7d6f9b8c4-abc12
+Request 2: X-Served-By: login-app-7d6f9b8c4-xyz99
+Request 3: X-Served-By: login-app-7d6f9b8c4-abc12
 ```
 
-## 10. Advanced Load Balancing Configuration
+---
 
-For more advanced load balancing features:
+## Step 8 — Test Autoscaling
 
-### Session Affinity (Sticky Sessions)
-
-If you need user sessions to stick to the same pod:
+Trigger CPU load to verify HPA scales pods up automatically:
 
 ```bash
-kubectl annotate ingress login-app-ingress nginx.ingress.kubernetes.io/affinity="cookie"
-kubectl annotate ingress login-app-ingress nginx.ingress.kubernetes.io/session-cookie-name="SERVERID"
+# Watch HPA status in a separate terminal
+watch kubectl get hpa login-app-hpa
+
+# Watch pods scaling in another terminal
+watch kubectl get pods -l app=login-app
+
+# Generate load using a busybox pod (runs for ~3 minutes)
+kubectl run load-gen --image=busybox --restart=Never --rm -it -- \
+  sh -c "while true; do wget -q -O- http://login-app/; done"
 ```
 
-### Traffic Weighting
-
-To direct different percentages of traffic to different versions of your application:
+Expected behavior:
+- CPU % will rise above 80%
+- HPA scales up from 2 → 4 pods (within ~60s)
+- After stopping load, pods scale back down after ~300s stabilization window
 
 ```bash
-# Create another deployment with a newer version
-kubectl apply -f k8s/web-deployment-v2.yaml
-
-# Create a service for v2
-kubectl apply -f k8s/web-service-v2.yaml
-
-# Update ingress to split traffic
-kubectl apply -f k8s/weighted-ingress.yaml
+# Stop the load generator (Ctrl+C), then monitor scale-down
+kubectl get hpa login-app-hpa -w
+kubectl get pods -l app=login-app -w
 ```
 
-## 11. Troubleshooting
+---
 
-If you encounter issues:
+## Monitoring
 
 ```bash
-# Check ingress controller pods
+# Live HPA metrics
+kubectl get hpa login-app-hpa
+
+# Current CPU/memory usage of login-app pods
+kubectl top pods -l app=login-app
+
+# HPA events and decisions
+kubectl describe hpa login-app-hpa
+
+# Ingress controller logs
+kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=50
+
+# Ingress resource details
+kubectl describe ingress login-app-ingress
+```
+
+---
+
+## Troubleshooting
+
+### App returns "Database error" after restart
+```bash
+kubectl rollout restart deployment login-app
+kubectl rollout status deployment login-app
+```
+
+### Ingress returns 404 or 502
+```bash
+# Check ingress controller is running
 kubectl get pods -n ingress-nginx
 
 # Check ingress controller logs
-kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
+kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=30
 
-# Check if ingress is properly configured
+# Check ingress routing
 kubectl describe ingress login-app-ingress
 
-# Check endpoints for the service
+# Check login-app endpoints are registered
 kubectl get endpoints login-app
-
-#Database error: Restart the web application deployment
-kubectl rollout restart deployment login-app
-
-# Restart MySQL deployment
-kubectl rollout restart deployment mysql
-
-This completes the setup of load balancing for the login web application.
 ```
+
+### HPA shows "unknown" metrics
+```bash
+# Ensure metrics-server is running
+kubectl get deployment metrics-server -n kube-system
+
+# Test metrics collection
+kubectl top pods -l app=login-app
+
+# Restart metrics-server if needed
+kubectl rollout restart deployment metrics-server -n kube-system
+```
+
+### Ingress port 30081 not accessible
+```bash
+# Verify NodePort is bound to 30081
+kubectl get svc -n ingress-nginx
+
+# Confirm the firewall allows port 30081
+# On the node: sudo ufw allow 30081/tcp
+```
+
+---
+
+## Summary
+
+| Component | Status Command | Expected |
+|-----------|---------------|----------|
+| login-app pods | `kubectl get pods -l app=login-app` | 2-4 Running |
+| login-app service | `kubectl get svc login-app` | NodePort 30080 |
+| NGINX ingress controller | `kubectl get pods -n ingress-nginx` | Running |
+| Ingress resource | `kubectl get ingress` | login-app-ingress |
+| HPA | `kubectl get hpa login-app-hpa` | Targets shown, min 2 max 4 |
+| Metrics server | `kubectl top pods -l app=login-app` | CPU/memory values shown |
+

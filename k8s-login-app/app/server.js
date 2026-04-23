@@ -96,6 +96,14 @@ app.use(session({
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+
+// Add pod identity header so load balancing can be verified
+// Must be placed before express.static so it applies to ALL responses
+app.use((req, res, next) => {
+  res.set('X-Served-By', process.env.HOSTNAME || 'unknown');
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Authentication middleware
