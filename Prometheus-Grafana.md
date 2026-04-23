@@ -3,6 +3,7 @@
 This guide provides comprehensive instructions for setting up monitoring in your Kubernetes cluster to collect metrics for autoscaling decisions and operational insights.
 
 ## Table of Contents
+- Verification (If Already Installed)
 - Installing Metrics Server
 - Setting Up Prometheus and Grafana
 - Accessing and Configuring Grafana
@@ -11,6 +12,38 @@ This guide provides comprehensive instructions for setting up monitoring in your
 - Setting Up Horizontal Pod Autoscaler (HPA)
 - Load Testing for Autoscaling
 - Troubleshooting
+
+## Verification (If Already Installed)
+
+If Prometheus and Grafana are already installed in your cluster, verify the installation:
+
+```bash
+# Check metrics-server is running
+kubectl get deployment metrics-server -n kube-system
+
+# Verify metrics collection
+kubectl top nodes
+kubectl top pods
+
+# Check Prometheus and Grafana pods
+kubectl get pods -n monitoring
+
+# Check Grafana service and port
+kubectl get svc -n monitoring prometheus-grafana
+
+# Verify HPA configuration
+kubectl get hpa
+kubectl describe hpa login-app-hpa
+```
+
+**Current Cluster Status:**
+- **Grafana URL**: http://10.34.7.115:32432 or http://10.34.7.5:32432
+- **Grafana Login**: admin / admin
+- **Prometheus**: Running in monitoring namespace
+- **Metrics Server**: Active and collecting metrics
+- **HPA**: Configured for login-app (2-4 replicas, CPU target 80%)
+
+If all components are running, skip to the "Accessing and Configuring Grafana" section. Otherwise, continue with the installation steps below.
 
 ## Installing Metrics Server
 
@@ -84,6 +117,51 @@ echo "Access Grafana at http://<your-node-ip>:$GRAFANA_PORT"
 # Username: admin
 # Password: admin (or the password you set in the Helm installation)
 ```
+
+### Access Grafana Dashboard
+
+**For this cluster, Grafana is accessible at:**
+- http://10.34.7.115:32432
+- http://10.34.7.5:32432
+
+**Login credentials:**
+- Username: `admin`
+- Password: `admin`
+
+### Verify Prometheus and Grafana Installation
+
+```bash
+# Check all monitoring pods are running
+kubectl get pods -n monitoring
+
+# Verify Grafana service
+kubectl get svc -n monitoring prometheus-grafana
+
+# Verify metrics collection is working
+kubectl top nodes
+kubectl top pods
+
+# Check HPA status
+kubectl get hpa
+kubectl describe hpa login-app-hpa
+```
+
+### Access Prometheus UI (Optional)
+
+While Grafana is the primary interface, you can also access Prometheus directly for troubleshooting:
+
+```bash
+# Port-forward Prometheus to your local machine
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+
+# Then access http://localhost:9090 in your browser
+# Useful URLs:
+# - http://localhost:9090/targets (check scraping targets)
+# - http://localhost:9090/graph (run PromQL queries)
+# - http://localhost:9090/alerts (view active alerts)
+```
+
+**Note**: Port-forwarding is required for Prometheus as it's not exposed via NodePort by default.
 
 ## Instrumenting Your Application
 
@@ -183,7 +261,28 @@ In Grafana:
 
 ## Setting Up Horizontal Pod Autoscaler (HPA)
 
-### CPU-based HPA
+### Current HPA Configuration
+
+The cluster already has an HPA configured for the login-app:
+
+```bash
+# Check current HPA status
+kubectl get hpa login-app-hpa
+
+# View detailed HPA configuration
+kubectl describe hpa login-app-hpa
+```
+
+**Current Configuration:**
+- Min replicas: 2
+- Max replicas: 4
+- CPU target: 80% utilization
+- Scale up: 4 pods per 15 seconds or 100% per 15 seconds (whichever is higher)
+- Scale down: Stabilization window of 300 seconds
+
+### CPU-based HPA (Example for New Deployments)
+
+If you need to create a new HPA or modify the existing one:
 
 ```yaml
 apiVersion: autoscaling/v2
@@ -216,6 +315,9 @@ Apply this configuration:
 
 ```bash
 kubectl apply -f cpu-hpa.yaml
+
+# Verify the HPA was created/updated
+kubectl get hpa login-app-hpa
 ```
 
 ### Custom Metrics HPA (Network-based)
@@ -278,18 +380,48 @@ kubectl apply -f network-hpa.yaml
 
 To test autoscaling, generate load on your application:
 
+### Install Load Testing Tool
+
 ```bash
-# Install hey load testing tool
+# Option 1: Install hey for load testing
 go install github.com/rakyll/hey@latest
 
-# Run a load test against your application
-hey -z 5m -c 50 http://<node-ip>:30080/login
+# Option 2: Use Apache Bench (if already installed)
+which ab
 
-# Watch HPA in action
-kubectl get hpa -w
+# Option 3: Use kubectl run with busybox for simple testing
+kubectl run -it --rm load-generator --image=busybox /bin/sh
+# Then inside the pod:
+while true; do wget -q -O- http://login-app; done
+```
 
-# Monitor pods scaling up/down
-kubectl get pods -w
+### Run Load Tests
+
+```bash
+# Using hey (if installed)
+hey -z 5m -c 50 http://10.34.7.115:30080/
+
+# Using Apache Bench
+ab -n 10000 -c 50 http://10.34.7.115:30080/
+
+# Using a simple shell loop
+for i in {1..1000}; do curl http://10.34.7.115:30080/ & done
+
+# Watch HPA scale in real-time
+kubectl get hpa login-app-hpa -w
+
+# Monitor pods scaling up/down in another terminal
+kubectl get pods -w -l app=login-app
+```
+
+### Monitor CPU Usage During Load Test
+
+```bash
+# Watch CPU metrics
+watch kubectl top pods -l app=login-app
+
+# Check HPA events
+kubectl describe hpa login-app-hpa | tail -20
 ```
 
 ## Monitoring Autoscaling
@@ -303,6 +435,131 @@ kubectl describe hpa login-app-hpa
 
 # Check current metric values
 kubectl get --raw "/apis/metrics.k8s.io/v1beta1/namespaces/default/pods" | jq .
+```
+
+## Python Monitoring Script
+
+A Python script (`prometheus_monitor.py`) is provided to query and display login-app metrics from Prometheus.
+
+### Features
+
+- Display CPU usage (millicores and cores) per pod
+- Show memory usage (MB and GB) per pod
+- Network statistics (receive/transmit rates)
+- Pod restart counts
+- Continuous monitoring with refresh intervals
+- Export metrics to JSON file
+
+### Installation
+
+```bash
+# Install Python dependencies
+pip3 install -r requirements.txt
+
+# Or install manually
+pip3 install requests
+```
+
+### Usage
+
+**1. Port-forward Prometheus (required):**
+
+```bash
+# In one terminal, forward Prometheus to localhost
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+```
+
+**2. Run the monitoring script:**
+
+```bash
+# Single snapshot
+python3 prometheus_monitor.py
+
+# Continuous monitoring (refresh every 5 seconds)
+python3 prometheus_monitor.py --interval 5
+
+# Export to JSON
+python3 prometheus_monitor.py --export --output metrics.json
+
+# Continuous monitoring with JSON export
+python3 prometheus_monitor.py --interval 10 --export
+```
+
+**3. Using a different Prometheus URL:**
+
+```bash
+# If Prometheus is accessible via different URL
+python3 prometheus_monitor.py --url http://10.34.7.115:30119
+```
+
+### Script Options
+
+```
+--url        Prometheus URL (default: http://localhost:9090)
+--interval   Refresh interval in seconds (0 = run once)
+--export     Export metrics to JSON file
+--output     Output JSON filename (default: login_app_metrics.json)
+```
+
+### Example Output
+
+```
+================================================================================
+Login-App Metrics - 2026-04-14 10:30:45
+================================================================================
+
+📊 CPU Usage:
+Pod Name                                 CPU (millicores)     CPU (cores)    
+--------------------------------------------------------------------------------
+login-app-544d5c5674-c4bc5              12.45                0.012          
+login-app-544d5c5674-w9qdj              15.30                0.015          
+login-app-544d5c5674-xwljs              10.80                0.011          
+--------------------------------------------------------------------------------
+TOTAL                                    38.55                0.039          
+
+💾 Memory Usage:
+Pod Name                                 Memory (MB)          Memory (GB)    
+--------------------------------------------------------------------------------
+login-app-544d5c5674-c4bc5              85.60                0.084          
+login-app-544d5c5674-w9qdj              82.30                0.080          
+login-app-544d5c5674-xwljs              88.90                0.087          
+--------------------------------------------------------------------------------
+TOTAL                                    256.80               0.251          
+
+🌐 Network Statistics:
+  Network Receive:
+  Pod Name                                Bytes/s         KB/s            MB/s           
+  ------------------------------------------------------------------------------
+  login-app-544d5c5674-c4bc5             1250.5          1.22            0.001          
+
+  Network Transmit:
+  Pod Name                                Bytes/s         KB/s            MB/s           
+  ------------------------------------------------------------------------------
+  login-app-544d5c5674-c4bc5             3500.8          3.42            0.003          
+```
+
+### Programmatic Integration
+
+You can also import the monitor class in your own Python scripts:
+
+```python
+from prometheus_monitor import PrometheusMonitor
+
+# Initialize monitor
+monitor = PrometheusMonitor(prometheus_url="http://localhost:9090")
+
+# Get CPU metrics
+cpu_metrics = monitor.get_cpu_usage()
+for metric in cpu_metrics:
+    print(f"Pod: {metric['pod']}, CPU: {metric['cpu_millicores']} millicores")
+
+# Get memory metrics
+memory_metrics = monitor.get_memory_usage()
+for metric in memory_metrics:
+    print(f"Pod: {metric['pod']}, Memory: {metric['memory_mb']} MB")
+
+# Export to JSON
+monitor.export_to_json("my_metrics.json")
 ```
 
 ## Troubleshooting
