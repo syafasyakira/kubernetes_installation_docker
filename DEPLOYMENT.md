@@ -20,6 +20,8 @@ kubectl delete pv mysql-pv
 # Delete secrets
 kubectl delete secret mysql-secret
 ```
+![Hasil Screenshot](screenshot/26.png)
+
 ## 2. Build and Load Docker Image
 
 ```bash
@@ -47,6 +49,10 @@ scp login-app.tar user@worker-node:/home/user/
 # On each worker node, load the image
 docker load < login-app.tar
 ```
+![Hasil Screenshot](screenshot/27.png)
+![Hasil Screenshot](screenshot/28.png)
+![Hasil Screenshot](screenshot/29.png)
+![Hasil Screenshot](screenshot/30.png)
 
 ## 3. Prepare Storage for MySQL
 
@@ -57,6 +63,7 @@ Create a directory on your worker node to store MySQL data:
 sudo mkdir -p /mnt/data
 sudo chmod 777 /mnt/data
 ```
+![Hasil Screenshot](screenshot/31.png)
 
 ## 4. Deploy MySQL Database
 
@@ -76,6 +83,8 @@ kubectl get pods -l app=mysql
 # Wait for MySQL pod to be ready
 kubectl wait --for=condition=ready pod -l app=mysql --timeout=180s
 ```
+![Hasil Screenshot](screenshot/32.png)
+![Hasil Screenshot](screenshot/33.png)
 
 ## 5. Deploy Web Application
 
@@ -89,6 +98,8 @@ kubectl apply -f k8s/web-service.yaml
 # Check if web application pods are running
 kubectl get pods -l app=login-app
 ```
+![Hasil Screenshot](screenshot/34.png)
+
 
 ## 6. Access the Application
 
@@ -101,6 +112,8 @@ http://10.34.7.5:30080    (Worker node)
 
 Both URLs work from any machine on your local network (10.34.7.0/24).
 
+![Hasil Screenshot](screenshot/35.png)
+
 ## 7. Testing the Application
 
 1. Open your web browser and navigate to `http://10.34.7.115:30080`
@@ -108,6 +121,10 @@ Both URLs work from any machine on your local network (10.34.7.0/24).
    - Username: `admin`
    - Password: `admin123`
 3. After login, you'll be redirected to the dashboard where you can upload images
+
+![Hasil Screenshot](screenshot/36.png)
+![Hasil Screenshot](screenshot/37.png)
+![Hasil Screenshot](screenshot/38.png)
 
 ## 8. Important: Calico Networking Configuration
 
@@ -126,6 +143,8 @@ kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system -
 # Verify correct IPs are detected on all nodes
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.projectcalico\.org/IPv4Address}{"\n"}{end}'
 ```
+
+![Hasil Screenshot](screenshot/40.png)
 
 ## 9. Troubleshooting
 
@@ -173,6 +192,8 @@ SHOW TABLES;
 SELECT * FROM users;
 ```
 
+![Hasil Screenshot](screenshot/39.png)
+
 ## 11. Accessing the Application
 
 ### Login Application
@@ -189,4 +210,9 @@ SELECT * FROM users;
   ```
 
 This completes the deployment of the login web application with MySQL on Kubernetes.
-```
+
+# 3 REPLICA(S)
+![Hasil Screenshot](screenshot/41.png)
+![Hasil Screenshot](screenshot/42.png)
+![Hasil Screenshot](screenshot/43.png)
+![Hasil Screenshot](screenshot/44.png)
